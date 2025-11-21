@@ -8,8 +8,9 @@ const {detectAnomalies} = require('./anomaly/detector');
 const {explainAnomaly, buildPrompt} = require('./anomaly/llmExplain');
 
 
+const demo_metric = "sales";
 const csvPath = path.join(__dirname, 'data', 'metrics.csv');
-
+let lastProcessedIndex = 0;
 const app = express();
 const port = 3000; 
 
@@ -20,9 +21,13 @@ app.get('/', (req, res) => {
 
 function addNewData() {
     const timestamp = new Date().toISOString();
-    const sales = Math.floor(Math.random() * 50 + 100);
+    let sales = Math.floor(Math.random() * 50 + 100);
     const traffic = Math.floor(Math.random() * 50 + 200);
     const errors = Math.floor(Math.random() * 5);
+
+    if (Math.random() < 0.2) {
+        sales += sales * 2;
+    }
     const newRow = `\n${timestamp},${sales},${traffic},${errors}`;
     fs.appendFile(csvPath, newRow, (err)=> {
         if (err) {
@@ -35,7 +40,7 @@ function addNewData() {
 }
 
 
-function parseRows(rows) {
+async function parseRows(rows) {
     return rows.map(row => ({
         ...row,
         sales: Number(row.sales),
@@ -48,17 +53,23 @@ function parseRows(rows) {
 async function runProactiveAgent() {
     try {
         const raw = await readCSV(csvPath);
+        console.log(raw);
         const data = await parseRows(raw);
-        const anomalies = await detectAnomalies(data);
-
+        console.log(data);
+        const anomalies = await detectAnomalies(data, 3, 2, lastProcessedIndex);
+        console.log('Detected anomalies:', anomalies);
         if (anomalies.length > 0) {
             for (const a of anomalies) {
-                const prompt = await buildPrompt(a, "sales");
+                const prompt = await buildPrompt(a, demo_metric);
                 const llm = await explainAnomaly(prompt);
-                console.log("---- Anomaly Explanation ----");
+                console.log("---- Anomaly Detected ----");
+                console.log(`Timestamp: ${a.row.timestamp}`);
+                console.log(`Metric: ${demo_metric}`);
                 console.log(llm.output_text);
+                console.log("--------------------------\n");
             }
         }
+        lastProcessedIndex = data.length;
     }
     catch (error) {
         console.error('Error in proactive agent:', error);
@@ -67,9 +78,7 @@ async function runProactiveAgent() {
 
 
 setInterval(runProactiveAgent, 5000); // Run every 60 seconds
-
-
-
+setInterval(addNewData, 10000);
 
 
 //setInterval(addNewData, 10000); // Add new data every 10 seconds
