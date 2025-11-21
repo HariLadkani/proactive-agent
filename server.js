@@ -2,6 +2,12 @@ const express = require('express');
 const fs = require('fs');
 const csv = require('csv-parser');
 const path  = require('path');
+
+const {readCSV} = require('./anomaly/csvReader');
+const {detectAnomalies} = require('./anomaly/detector');
+const {explainAnomaly, buildPrompt} = require('./anomaly/llmExplain');
+
+
 const csvPath = path.join(__dirname, 'data', 'metrics.csv');
 
 const app = express();
@@ -29,20 +35,6 @@ function addNewData() {
 }
 
 
-function readCSV(callback) {
-    const results = [];
-    
-    fs.createReadStream(csvPath)
-        .pipe(csv())
-        .on('data', (data) => {
-            results.push(data);
-        })
-        .on('end', () => {
-            callback(results);
-        });
-}
-
-
 function parseRows(rows) {
     return rows.map(row => ({
         ...row,
@@ -53,45 +45,29 @@ function parseRows(rows) {
 }
 
 
-function runProactiveAgent() {
-    console.log('Running proactive agent...');
-    readCSV((rawData) => {
-        const data = parseRows(rawData);
-        const anomalies = detectAnomalies(data);
-        if (anomalies.length > 0) {
-            console.log('Anomalies detected:');
-            anomalies.forEach((a, index) => {
-                console.log(`${index + 1}. ${a.reason}`);
-            });
-        }
-        else {
-            console.log('No anomalies detected.');
-        }
+async function runProactiveAgent() {
+    try {
+        const raw = await readCSV(csvPath);
+        const data = await parseRows(raw);
+        const anomalies = await detectAnomalies(data);
 
-        console.log("Agent cycle complete.");
-    });
+        if (anomalies.length > 0) {
+            for (const a of anomalies) {
+                const prompt = await buildPrompt(a, "sales");
+                const llm = await explainAnomaly(prompt);
+                console.log("---- Anomaly Explanation ----");
+                console.log(llm.output_text);
+            }
+        }
+    }
+    catch (error) {
+        console.error('Error in proactive agent:', error);
+    }
 }
 
 
 setInterval(runProactiveAgent, 5000); // Run every 60 seconds
-function detectAnomalies(data, windowSize = 3, threshold = 3) {
-    const anomalies = [];
 
-    for (let i= windowSize; i< data.length; i++) {
-        const window = data.slice(i-windowSize, i);
-        const meanSales = window.reduce((sum, row) => sum + row.sales, 0) / windowSize;
-        const stdDevSales = Math.sqrt(window.reduce((sum, row) => sum + Math.pow(row.sales - meanSales, 2), 0) / windowSize);
-        const current = data[i].sales;
-
-        if (Math.abs(current - meanSales) > threshold * stdDevSales) {
-            anomalies.push({
-                row: data[i],
-                reason: `Sales ${current} deviated from rolling mean ${meanSales.toFixed(2)} by more than ${threshold}σ (σ=${stdDevSales.toFixed(2)})`
-            });
-        }
-    }
-    return anomalies;
-}
 
 
 
@@ -102,4 +78,3 @@ function detectAnomalies(data, windowSize = 3, threshold = 3) {
 app.listen(port, () => {
     console.log('Server is running on http://localhost:' + port)
 })
-

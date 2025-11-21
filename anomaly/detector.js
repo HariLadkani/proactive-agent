@@ -1,4 +1,4 @@
-function detectAnomalies(data, windowSize = 3, threshold = 2) {
+async function detectAnomalies(data, windowSize = 3, threshold = 2) {
     const anomalies = [];
 
     for (let i = windowSize; i < data.length; i++) {

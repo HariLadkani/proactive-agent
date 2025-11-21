@@ -2,7 +2,7 @@ const fs = require('fs');
 const csv = require('csv-parser');
 const path = require('path');
 
-function readCSV(csvPath) {
+async function readCSV(csvPath) {
     return new Promise((resolve, reject) => {
         const results = [];
         fs.createReadStream(csvPath)
